@@ -1,7 +1,5 @@
 # FactorLens Technical Documentation
 
-This document is the complete, precise description of the FactorLens project: the problem it solves, the technical and financial design choices, the data and modeling workflow, the full project structure, and an explanation of every financial and technical concept used in the system.
-
 ## 1. Problem and Goal
 
 **Problem:** Traditional factor investing often relies on fixed, theory-driven signals that do not adapt well to changes in market regimes or data coverage. Researchers need a workflow that learns factor behavior directly from data, quantifies signal efficacy, and explains model-driven predictions in a portfolio context.

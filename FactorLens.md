@@ -446,3 +446,196 @@ streamlit run app.py
 - `src/utils/io.py`: CSV listing and reading.
 - `src/visualization/dashboard.py`: Plotly charts.
 - `notebooks/FactorLens_Build.ipynb`: End-to-end notebook workflow.
+
+## 23. SDE Interview Technical Breakdown (Code-Verified)
+
+This section is a code-verified, interview-style analysis of the repository based on the actual implementation in:
+
+- `app.py`
+- `src/config.py`
+- `src/data_pipeline/load_data.py`
+- `src/data_pipeline/preprocess.py`
+- `src/feature_engineering/factor_features.py`
+- `src/factor_engine/factor_portfolio.py`
+- `src/factor_engine/exposure_analysis.py`
+- `src/models/train.py`
+- `src/models/lasso_model.py`
+- `src/models/random_forest.py`
+- `src/models/xgboost_model.py`
+- `src/utils/columns.py`
+- `src/utils/io.py`
+- `src/visualization/dashboard.py`
+- `requirements.txt`
+- `Readme.md`
+- `notebooks/FactorLens_Build.ipynb`
+
+### 23.1 High-Level Overview
+
+- **Problem solved:** Learn equity factor signals directly from price and fundamentals data, quantify factor returns, and explain portfolio exposure with model-backed predictions.
+- **Target users:** Data-savvy researchers and analysts who want a reproducible factor research workflow with a UI.
+- **Core functionality:** CSV ingestion and normalization, as-of merges, feature engineering, long-short factor returns, model training with feature importance, backtest, and Streamlit dashboard rendering.
+
+### 23.2 Architecture
+
+- **Style:** Single-process, pipeline-first, layered Python app with a Streamlit UI. There is no service decomposition or networked components.
+- **Folders and responsibilities:**
+    - `src/data_pipeline/*` handles ingestion, column normalization, return computation, and as-of merges.
+    - `src/feature_engineering/*` defines factor features and target label creation.
+    - `src/factor_engine/*` builds factor returns and portfolio exposure analytics.
+    - `src/models/*` trains ML models and computes metrics/importance.
+    - `src/visualization/*` builds Plotly figures.
+    - `app.py` orchestrates the pipeline, training, backtest, and UI.
+- **Module interaction flow:** `app.py` calls load/merge functions, feature builder, factor return computation, model training, and Plotly charts; outputs are saved to CSV for demo runs.
+
+### 23.3 Technology Stack
+
+- **Language:** Python 3.10 (declared in `Readme.md` front matter; used by all modules).
+- **Framework/UI:** Streamlit for dashboard and user input (`app.py`).
+- **Core libraries:** pandas, numpy for data manipulation; scikit-learn for LASSO and Random Forest; xgboost for gradient boosting; plotly for charts.
+- **Dependencies:** pinned versions in `requirements.txt`.
+- **Package management:** `pip` with `requirements.txt`.
+
+### 23.4 Core Components and Responsibilities
+
+#### UI and Orchestration
+
+- **`app.py`**
+    - UI layout, sidebar controls, and CSS styling.
+    - Pipeline execution with two modes: raw Kaggle CSVs or processed CSVs.
+    - Model training with `train_models()` and backtest via `long_short_by_prediction()`.
+    - Portfolio exposure via `portfolio_exposure()` and basic regime labeling.
+
+#### Configuration
+
+- **`src/config.py`**
+    - Centralizes project paths for raw and processed data outputs.
+
+#### Data Pipeline
+
+- **`src/data_pipeline/load_data.py`**
+    - Normalizes column names (`normalize_columns`, `build_column_map`).
+    - Reads price files, infers ticker from filename if needed, and enforces required columns.
+    - Reads fundamentals files, infers year-based date if missing, and enforces required columns.
+    - Supports limiting tickers to a maximum subset for faster runs.
+
+- **`src/data_pipeline/preprocess.py`**
+    - Computes daily returns per ticker.
+    - As-of merge to align fundamentals with prices without look-ahead bias.
+
+#### Feature Engineering
+
+- **`src/feature_engineering/factor_features.py`**
+    - Computes momentum, volatility, size, value, profitability, growth, quality, earnings yield, leverage, liquidity.
+    - Creates target label `return_next` (one-step-ahead return).
+    - Drops rows with missing feature values or missing target.
+
+#### Factor Engine
+
+- **`src/factor_engine/factor_portfolio.py`**
+    - Long-short factor returns via quantile sorting by feature, per date.
+    - Backtest long-short returns from model predictions and cumulative performance.
+
+- **`src/factor_engine/exposure_analysis.py`**
+    - Computes factor exposure by applying portfolio weights to latest feature values.
+
+#### Modeling
+
+- **`src/models/train.py`**
+    - Time-ordered 80/20 split (`shuffle=False`).
+    - LASSO with feature scaling (StandardScaler) and Random Forest / XGBoost without scaling.
+    - Returns evaluation metrics (MSE, R2), predictions, and importance/coefficient values.
+
+- **`src/models/lasso_model.py`, `random_forest.py`, `xgboost_model.py`**
+    - Define model builders, though `train.py` currently constructs models inline.
+
+#### Visualization
+
+- **`src/visualization/dashboard.py`**
+    - Cumulative factor return lines, feature importance bars, factor correlation heatmap, and model comparison bars.
+
+#### Utilities
+
+- **`src/utils/columns.py`**
+    - Column normalization and mapping helpers.
+
+- **`src/utils/io.py`**
+    - Recursive CSV discovery and generic `read_csv` wrapper.
+
+#### Notebook
+
+- **`notebooks/FactorLens_Build.ipynb`**
+    - Step-by-step walkthrough that mirrors the pipeline: setup, Kaggle download, load/merge, feature engineering, factor returns, model training, exposure analysis, visualization, and saving processed CSVs.
+
+### 23.5 Algorithms and Logic (With Complexity Notes)
+
+- **As-of merge for fundamentals** (`merge_price_fundamentals`): uses `pd.merge_asof` to align each price row with the latest available fundamental row for that ticker. Complexity is dominated by sorting: $O(N \log N)$ per merge for $N$ rows.
+- **Long-short factor returns** (`long_short_factor`): per date, sort by feature and compute top/bottom quantile means. If there are $D$ dates and $K_d$ rows per date, total complexity is $\sum_d O(K_d \log K_d)$.
+- **Rolling volatility and momentum** (`build_features`): rolling window std and pct change; per ticker, linear in data size per window ($O(N)$ per feature per ticker).
+- **Prediction backtest** (`long_short_by_prediction`): same quantile logic as factor returns, with cumulative return computed via cumulative product.
+
+### 23.6 Data Handling
+
+- **Storage:** CSV files only; no database layer.
+- **Inputs:** Raw CSVs under `data/raw/prices` and `data/raw/fundamentals`.
+- **Outputs:** `data/processed/stock_features.csv` and `data/processed/factor_returns.csv` saved by `app.py` and notebook steps.
+- **Schema:** Canonical fields enforced by `load_data.py`, with optional fields for additional signals.
+- **CRUD:** Reads are in `load_data.py` and `utils/io.py`; writes are in `app.py` and `notebooks/FactorLens_Build.ipynb`.
+
+### 23.7 API Design (Not Applicable)
+
+- There are no HTTP endpoints or API controllers. The interface is Streamlit UI in `app.py`.
+
+### 23.8 System Design Considerations
+
+- **Scalability:** Primarily bound by CSV size and in-memory pandas operations. `max_tickers` reduces load size in the UI.
+- **Performance:** Uses vectorized pandas operations and per-ticker grouping; no parallelism beyond model training (`n_jobs=-1` for RF/XGBoost).
+- **Error handling:** `app.py` handles missing files and invalid data via exceptions with Streamlit error messages.
+- **Logging/monitoring:** No logging framework; UI messages provide feedback.
+
+### 23.9 Security Aspects
+
+- **Authentication/authorization:** None.
+- **Input validation:** Portfolio input parser ignores malformed lines, and missing data conditions are surfaced via Streamlit warnings.
+- **Data protection:** No encryption or secrets handling (Kaggle token setup referenced in the notebook only).
+
+### 23.10 Testing
+
+- No unit or integration tests present in the repository.
+
+### 23.11 DevOps / Configuration
+
+- **Environment config:** Dependencies pinned in `requirements.txt`.
+- **Build/deploy:** `Readme.md` documents Streamlit Cloud and Hugging Face deployment with `app.py` entrypoint.
+- **No CI/CD config** included.
+
+### 23.12 Strengths
+
+- Clear, modular pipeline separation between ingestion, feature engineering, factor construction, and modeling.
+- Data normalization and as-of merging reduce common data quality and leakage issues.
+- Streamlit UI makes the research workflow accessible and inspectable.
+- Deterministic model settings and structured outputs enable reproducibility.
+
+### 23.13 Potential Improvements (Code-Consistent)
+
+- Add tests for key data transformations (returns, merges, feature outputs).
+- Introduce logging for data loading and training steps.
+- Add model builders from `src/models/*` into `train.py` to avoid duplicated hyperparameters.
+- Add caching for data loading and feature computations to speed repeated UI runs.
+
+### 23.14 Interview-Ready Explanation (1-2 Minutes)
+
+**Concise pitch:**
+"FactorLens is a Streamlit-based factor research pipeline that ingests raw equity prices and fundamentals from CSVs, normalizes and merges them with an as-of join, engineers common factor signals, and then evaluates those signals using long-short factor returns and supervised ML models. The app trains LASSO, Random Forest, or XGBoost on a time-ordered split, surfaces model metrics and feature importance, and backtests predictions as a market-neutral long-short strategy. All artifacts are persisted to processed CSVs so the UI can run in demo mode without raw data. The design is modular with clear separation between ingestion, feature engineering, factor construction, modeling, and visualization."
+
+**Key highlights to mention:**
+
+- As-of merge to avoid look-ahead bias.
+- Quantile-based long-short factor construction.
+- Time-ordered train/test split.
+- Persisted processed outputs for fast demo runs.
+
+**Likely follow-up questions:**
+
+- How would you scale this to larger universes (memory, distributed compute, or chunked processing)?
+- How would you model transaction costs or realistic execution delays?
+- How would you validate factor stability across regimes or use walk-forward validation?

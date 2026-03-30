@@ -16,6 +16,7 @@ FACTORLENS - SDE INTERVIEW READY TECHNICAL DOCUMENTATION
   6. Backtest predictions as a long-short strategy.
   7. Compute portfolio exposure using latest factor rows.
   8. Render charts and tables in Streamlit.
+  9. Summarize market regime using rolling market return and volatility.
 - Orchestrator: app.py drives the entire pipeline, switching between raw Kaggle CSVs and processed CSV demo mode.
 
 3) TECH STACK (WITH JUSTIFICATION)
@@ -63,6 +64,8 @@ FACTORLENS - SDE INTERVIEW READY TECHNICAL DOCUMENTATION
   - exposure_analysis.py uses latest row per ticker and multiplies by weights.
 - UI and visualization:
   - app.py builds tabs and renders tables + plots from visualization/dashboard.py.
+- Market regime monitoring:
+  - app.py computes rolling mean and volatility of market returns to label regimes (risk-on, risk-off, mixed).
 
 6) DETAILED WORKING (STEP-BY-STEP FLOW)
 1. app.py decides data source:

@@ -1,173 +1,555 @@
-FACTORLENS - SDE INTERVIEW READY TECHNICAL DOCUMENTATION
+FACTORLENS
 
-1) PROJECT OVERVIEW (PROBLEM + MOTIVATION)
-- Problem: Traditional factor investing relies on fixed, theory-driven signals that may not adapt to shifting regimes or data coverage. The project needs a reproducible workflow that learns factor behavior from data, quantifies signal efficacy, and explains predictions in a portfolio context.
-- Motivation: Build a transparent, explainable factor research pipeline that connects raw price/fundamentals data to factor returns, model-based predictions, and portfolio exposure analytics.
-- Target users: Data-savvy researchers and analysts who want a repeatable, inspectable factor workflow with a UI.
+PROBLEM TYPE: Regression (predict next-period returns) + Time-series factor backtesting
 
-2) HIGH-LEVEL ARCHITECTURE
-- Architecture style: Single-process, pipeline-first, layered Python application with a Streamlit UI. No microservices and no networked APIs.
-- Core components and flow:
-  1. Ingest CSVs (prices + fundamentals) with schema normalization.
-  2. Compute per-ticker returns and as-of merge fundamentals to prices.
-  3. Engineer factor features and forward return target.
-  4. Build long-short factor returns per signal.
-  5. Train models to predict forward returns and derive feature importance.
-  6. Backtest predictions as a long-short strategy.
-  7. Compute portfolio exposure using latest factor rows.
-  8. Render charts and tables in Streamlit.
-  9. Summarize market regime using rolling market return and volatility.
-- Orchestrator: app.py drives the entire pipeline, switching between raw Kaggle CSVs and processed CSV demo mode.
+TECH STACK: Python, pandas, numpy, scikit-learn, xgboost, plotly, Streamlit
 
-3) TECH STACK (WITH JUSTIFICATION)
-- Python 3.10: Stable, strong data ecosystem; noted in Readme.md front matter.
-- pandas + numpy: Core tabular processing and vectorized feature engineering.
-- scikit-learn: LASSO and Random Forest training, preprocessing, metrics.
-- xgboost: Non-linear boosting model for return prediction.
-- plotly: Interactive charts for factor returns, correlations, and model comparison.
-- streamlit: UI, interactivity, and fast dashboarding without frontend overhead.
-- kaggle (optional): Dataset download tooling referenced in notebook and readme.
-- Dependencies are pinned in requirements.txt for reproducibility.
+1) PROBLEM STATEMENT
+- We want to learn return-driving equity factors from historical price and fundamentals data, then validate those signals with both ML prediction quality and long-short factor returns.
+- The core task is predicting next-period returns at the stock level (regression), while also constructing factor portfolios to test if signals have economically meaningful performance.
 
-4) FOLDER STRUCTURE (IMPORTANT PATHS)
-- app.py: Streamlit UI, pipeline orchestration, backtest, and exposure analysis.
-- src/config.py: Central path configuration for raw and processed data.
-- src/data_pipeline/load_data.py: CSV discovery, schema normalization, and data loading.
-- src/data_pipeline/preprocess.py: Return computation and as-of merge.
-- src/feature_engineering/factor_features.py: Feature construction and target label.
-- src/factor_engine/factor_portfolio.py: Long-short factor returns and prediction backtest.
-- src/factor_engine/exposure_analysis.py: Portfolio factor exposure.
-- src/models/train.py: Model training, metrics, and importance extraction.
-- src/models/lasso_model.py, random_forest.py, xgboost_model.py: Model builder helpers.
-- src/utils/columns.py: Column normalization and candidate mapping.
-- src/utils/io.py: CSV discovery and read wrapper.
-- src/visualization/dashboard.py: Plotly figure construction.
-- notebooks/FactorLens_Build.ipynb: End-to-end build walkthrough.
-- data/raw/*: Raw CSVs for prices and fundamentals.
-- data/processed/*: Persisted features and factor returns for demo runs.
+What is the problem in one sentence?
+- Build a repeatable ML pipeline that transforms raw prices + fundamentals into factor signals, predicts next-period returns, and validates those signals via long-short backtests and exposure analysis.
 
-5) CORE FEATURES (WITH IMPLEMENTATION DETAILS)
-- Robust ingestion and schema normalization:
-  - load_data.py uses PRICE_COLUMN_CANDIDATES and FUND_COLUMN_CANDIDATES to map messy CSV schemas to canonical columns.
-  - If price data lacks a ticker column, the filename stem becomes the ticker.
-  - If fundamentals lack date, year is inferred from filename and set to YYYY-12-31.
-- As-of merge to prevent look-ahead bias:
-  - preprocess.py uses pd.merge_asof with direction="backward" by ticker and date.
-- Factor feature engineering (13 signals):
-  - factor_features.py computes momentum, volatility, size, value, profitability, quality, growth, earnings_yield, leverage, liquidity.
-  - return_next is computed as the forward one-step return per ticker.
-- Long-short factor returns:
-  - factor_portfolio.py sorts by feature per date and computes top-minus-bottom quantile return.
-- Prediction-based backtest:
-  - long_short_by_prediction sorts by model predictions and computes cumulative long-short return.
-- Portfolio exposure:
-  - exposure_analysis.py uses latest row per ticker and multiplies by weights.
-- UI and visualization:
-  - app.py builds tabs and renders tables + plots from visualization/dashboard.py.
-- Market regime monitoring:
-  - app.py computes rolling mean and volatility of market returns to label regimes (risk-on, risk-off, mixed).
+Why is it important?
+- Traditional factor investing uses fixed definitions (value, momentum, quality, etc.) that might be regime dependent.
+- A data-driven, modular pipeline makes factor research repeatable, measurable, and explainable.
+- It allows an analyst to compare models, interpret factor importance, and see whether a factor actually delivers a positive long-short return.
 
-6) DETAILED WORKING (STEP-BY-STEP FLOW)
-1. app.py decides data source:
-   - If Kaggle CSVs: load_prices_data() and load_fundamentals_data().
-   - If processed CSVs: load data/processed/stock_features.csv and factor_returns.csv.
-2. Prices go through compute_returns() to generate per-ticker daily returns.
-3. merge_price_fundamentals() aligns fundamentals to prices with pd.merge_asof.
-4. build_features() creates factor signals and return_next, then drops rows missing any available features or target.
-5. compute_factor_returns() builds long-short factor return series per feature.
-6. train_models() runs selected model (lasso, random_forest, xgboost) using time-ordered 80/20 split.
-7. long_short_by_prediction() builds a prediction-driven long-short strategy and cumulative return curve.
-8. portfolio_exposure() computes weighted factor exposure for selected or custom tickers.
-9. dashboard.py generates Plotly figures for the Streamlit UI.
+Real-world applications
+- Systematic equity research and strategy prototyping
+- Portfolio risk explanation (factor exposure)
+- Regime monitoring and signal health checks
+- Rapid experimentation via a UI for non-engineering stakeholders
 
-7) KEY ALGORITHMS AND LOGIC
-- As-of merge:
-  - merge_price_fundamentals() uses pd.merge_asof; complexity dominated by sort: O(N log N).
-- Quantile long-short:
-  - long_short_factor() sorts by feature per date; total complexity sum over dates of O(Kd log Kd).
-- Rolling volatility and momentum:
-  - rolling std and pct_change per ticker; linear per ticker per feature.
-- Time-ordered split:
-  - train_test_split with shuffle=False to avoid forward-looking leakage.
+1A) STEP-BY-STEP PROCEDURE TO BUILD THIS PROJECT
+Step 0: Define scope and pipeline goals
+- Decide the task: return prediction + factor research, not just classification.
+- Define outputs: factor returns, model metrics, backtest curve, and portfolio exposure.
 
-8) API DESIGN
-- Not applicable. No HTTP endpoints are implemented. The interface is Streamlit UI only.
+Step 1: Collect data
+- Choose datasets with price and fundamentals coverage (Kaggle CSVs).
+- Ensure raw files are separated into prices and fundamentals folders.
 
-9) DATABASE DESIGN
-- Not applicable. Storage is CSV files only under data/raw and data/processed.
-- Canonical schema is enforced via column normalization in load_data.py.
+Step 2: Normalize schemas and load data
+- Normalize column names (case, spaces, hyphens) into canonical names.
+- Map messy column names to standard fields (date, ticker, close, market_cap, etc.).
+- Infer ticker from filename if missing in price CSVs.
+- Infer date from filename year if missing in fundamentals.
 
-10) PERFORMANCE OPTIMIZATIONS
-- Vectorized pandas operations across grouped tickers.
-- Random Forest and XGBoost use n_jobs=-1 for parallel training.
-- max_tickers slider in app.py caps data volume for faster runs.
-- No caching is currently implemented in code.
+Step 3: Compute price returns
+- Sort prices by ticker and date.
+- Compute per-ticker percent change (return) from close prices.
 
-11) SCALABILITY CONSIDERATIONS
-- Current pipeline is in-memory pandas; scalability is bounded by CSV size and RAM.
-- UI includes a max_tickers limit to reduce load.
-- No distributed processing or chunked reads are present.
+Step 4: Merge fundamentals with prices
+- Sort both datasets by ticker and date.
+- Use backward as-of merge so each price row only sees fundamentals available at or before that date.
 
-12) EDGE CASES HANDLED
-- Missing ticker column in price CSVs: inferred from filename stem.
-- Missing date column in fundamentals CSVs: inferred from filename year.
-- Missing optional columns: features computed only if columns exist.
-- NaN and inf values in features: app.py replaces inf with NaN and fills NaN with 0 before modeling.
-- Missing processed CSVs: Streamlit displays errors and stops pipeline run.
+Step 5: Engineer factor features
+- Compute momentum, volatility, size, value, profitability, growth, quality, earnings_yield, leverage, liquidity.
+- Build return_next as the forward target variable.
+- Drop rows missing any available feature or target.
 
-13) SECURITY CONSIDERATIONS
-- No authentication or authorization in Streamlit UI.
-- Portfolio input parser ignores malformed lines and non-numeric weights.
-- No secrets or encryption in code. Kaggle token setup is referenced in the notebook only.
+Step 6: Construct factor portfolios
+- For each date and feature, rank stocks and create a long-short return (top quantile minus bottom quantile).
+- Aggregate per feature into a factor_returns table.
 
-14) CHALLENGES FACED AND SOLUTIONS (CODE-OBSERVED)
-- Schema inconsistency across CSVs: solved with normalize_columns() and candidate mapping in load_data.py.
-- Missing metadata in files: ticker and date inference based on filename.
-- Look-ahead risk in fundamentals: solved by backward as-of merge.
-- Model comparability: time-ordered split and standardized features for LASSO.
+Step 7: Train models
+- Split data into train/test by time order.
+- Train LASSO, Random Forest, and XGBoost.
+- Extract predictions and feature importance.
 
-15) TRADE-OFFS AND DESIGN DECISIONS
-- CSV storage vs database: simpler demos, faster setup; less scalable for large universes.
-- Quantile long-short returns: robust to outliers, but coarse and may discard information.
-- Single 80/20 split: simpler evaluation, but weaker regime stability analysis.
-- Streamlit UI: fast development, but not a multi-user secure platform.
+Step 8: Backtest model predictions
+- Sort predicted returns per date into quantiles.
+- Build long-short daily returns and cumulative performance.
 
-16) FUTURE IMPROVEMENTS / EXTENSIBILITY
-- Add walk-forward or rolling cross-validation.
-- Add transaction cost and slippage modeling in backtest.
-- Add caching for data loading and feature engineering (Streamlit cache).
-- Integrate model builder helpers into train.py to avoid duplicated hyperparams.
-- Add tests for compute_returns(), merge_price_fundamentals(), build_features(), and long_short_factor().
-- Consider chunked reads or distributed processing for larger datasets.
+Step 9: Compute portfolio exposure
+- Take latest factor values per ticker.
+- Multiply by user portfolio weights to estimate factor exposures.
 
-17) INTERVIEW-READY TALK TRACK (1-2 MINUTES)
-- FactorLens is a Streamlit-based factor research pipeline that ingests raw prices and fundamentals from CSVs, normalizes and merges them with a backward as-of join, engineers 13 standard factor signals, and evaluates those signals using both long-short factor returns and supervised ML models. The system trains LASSO, Random Forest, or XGBoost on a time-ordered split, surfaces MSE and R2 along with feature importance, and backtests predictions as a market-neutral long-short strategy. The pipeline persists processed features and factor returns to CSVs so the UI can run in demo mode without raw data. It is a single-process, modular pipeline with clear separation across ingestion, feature engineering, factor construction, modeling, and visualization.
+Step 10: Visualize and deploy
+- Build Streamlit UI with tabs for overview, factors, model, backtest, exposure.
+- Add plots for cumulative factor returns, correlations, and model comparison.
 
-18) LIMITATIONS AND ASSUMPTIONS
-- No transaction costs or slippage modeled in the backtest.
-- No walk-forward or rolling cross-validation; a single time-ordered split is used.
-- Fundamentals assumed available at report date; reporting delays are not modeled.
-- Data quality depends on CSV accuracy; no outlier detection beyond NaN/inf handling.
+Step 11: Save processed data
+- Persist stock_features.csv and factor_returns.csv for demo mode.
 
-19) EXTENSION POINTS
-- Add new signals in src/feature_engineering/factor_features.py.
-- Add model classes in src/models and wire into src/models/train.py and app.py.
-- Add diagnostics/plots in src/visualization/dashboard.py.
-- Add portfolio analytics in src/factor_engine.
+2) DATASET UNDERSTANDING
+Source of dataset
+- Raw CSVs (prices + fundamentals) from Kaggle datasets, loaded via a structured loader.
+- A demo mode uses preprocessed CSVs (stock_features.csv and factor_returns.csv).
 
-20) HOW TO RUN
-Install:
-pip install -r requirements.txt
+Datasets used (raw)
+- Prices: jacksoncrow/stock-market-dataset (daily OHLCV with ticker).
+- Fundamentals: cnic92/200-financial-indicators-of-us-stocks (company financials).
 
-Run App:
-streamlit run app.py
+Key raw price fields (typical)
+- date, open, high, low, close, adj_close, volume, ticker
 
-Data modes:
-- Processed CSV only uses data/processed for quick demo runs.
-- Kaggle CSVs use data/raw/prices and data/raw/fundamentals to rebuild outputs.
+Key raw fundamentals fields (typical)
+- ticker, report_date or fiscal_date, market_cap, book_value, pe_ratio, pb_ratio,
+  revenue, net_income, total_assets, shares_outstanding
 
-21) GLOSSARY (CORE TERMS)
-- Factor: A systematic characteristic explaining cross-sectional returns (e.g., value, momentum).
-- Long-short: Long high-signal assets and short low-signal assets to isolate factor returns.
-- Factor return: Performance of the long-short portfolio for a given factor.
-- As-of merge: Time-aligned join using the latest available fundamentals prior to price date.
+Features and target variable
+- Target: return_next (next-period return per ticker). Computed by shifting the per-ticker return series forward one step.
+- Features (13 factors):
+  - momentum_12m, momentum_6m, momentum_3m
+  - volatility_3m, volatility_1m
+  - size (log market cap)
+  - value (book_value / market_cap)
+  - profitability (net_income / total_assets)
+  - growth (revenue YoY)
+  - quality (net_income / revenue)
+  - earnings_yield (1 / PE ratio)
+  - leverage (total_assets / market_cap)
+  - liquidity (rolling avg volume, log-scaled)
+
+Data size
+- Depends on the number of tickers and years loaded. The app exposes a max_tickers slider to bound size.
+- The raw CSV universe can be large, but demo mode uses processed data for fast runs.
+
+Data types
+- Numerical: prices, returns, fundamentals, engineered factors
+- Categorical: ticker
+- Datetime: date
+- No text or image data
+
+Data imbalance
+- Not a classification task, so class imbalance does not apply.
+- Return distribution is typically heavy-tailed and noisy, which makes regression challenging and motivates robust evaluation.
+
+3) DATA PREPROCESSING
+Handling missing values
+- Missing required columns in CSVs are detected and surfaced as errors.
+- Feature engineering drops rows where any available feature or return_next is missing.
+- Before modeling, NaN and infinite values are replaced with 0 to avoid model failures.
+
+Encoding categorical variables
+- Ticker is not used directly as a feature; it only groups time series for return and rolling computations.
+
+Feature scaling
+- LASSO uses StandardScaler for normalized inputs.
+- Tree-based models (Random Forest, XGBoost) operate on raw numeric values.
+
+Outlier detection
+- No explicit outlier removal. This is an intentional trade-off for simplicity.
+- Robustness is partially handled via quantile long-short portfolios and model regularization.
+
+Data cleaning steps
+- Column normalization: unify messy CSV headers into canonical names.
+- Ticker inference: if missing in price files, infer from filename stem.
+- Date inference: if fundamentals file lacks date, infer from filename year.
+- As-of merge: align fundamentals to price data using backward merge to prevent look-ahead bias.
+
+4) EXPLORATORY DATA ANALYSIS (EDA)
+Key insights you can highlight
+- Factor return time series reveal which signals are persistent vs. unstable.
+- Correlation heatmap shows overlapping signals (e.g., value vs. profitability).
+- Regime labeling (risk-on, risk-off, mixed) provides macro context for factor performance.
+
+Correlations
+- Compute factor correlation matrix on factor return series.
+- Visualize with a heatmap to spot redundancy or diversification potential.
+
+Visual patterns
+- Cumulative factor return plots reveal long-term signal behavior.
+- Backtest curve shows if ML predictions translate into economic performance.
+
+Feature importance intuition
+- LASSO coefficients indicate linear signal strength (positive or negative).
+- RF/XGBoost importances reveal non-linear drivers and interactions.
+
+5) FEATURE ENGINEERING
+New features created
+- Momentum features from price changes over 3/6/12 months.
+- Volatility features from rolling std of returns.
+- Market cap inferred if missing (price * shares outstanding).
+- Value/profitability/quality/growth ratios from fundamentals.
+- Earnings yield from PE ratio.
+- Leverage from assets and market cap.
+- Liquidity from rolling volume.
+- return_next as supervised target.
+
+Feature selection techniques
+- available_features filters features with actual data presence.
+- This prevents training on empty or fully-null signals.
+
+Dimensionality reduction
+- Not used currently. PCA or factor analysis could be added to reduce collinearity.
+
+6) MODEL SELECTION
+Models tried
+- LASSO regression (sparse linear baseline)
+- Random Forest (non-linear bagging model)
+- XGBoost (boosted trees for strong tabular performance)
+
+Why these models
+- LASSO is interpretable and highlights a compact set of signals.
+- RF captures non-linear relationships without heavy preprocessing.
+- XGBoost often performs best on tabular data with strong regularization controls.
+
+Baseline model
+- LASSO, due to interpretability and its ability to handle multicollinearity via L1 penalty.
+
+7) TRAINING PROCESS
+Train-test split
+- Time-ordered 80/20 split with shuffle=False to reduce look-ahead.
+- This is crucial in finance to avoid future leakage.
+
+Cross-validation
+- LASSO internally uses CV (LassoCV) on the training slice.
+- Full time-series CV is not used yet but is a planned improvement.
+
+Hyperparameter tuning
+- Hyperparameters are currently set manually for RF and XGBoost.
+- For interview depth, propose RandomizedSearchCV with TimeSeriesSplit.
+
+Full hyperparameter rationale per model (why each value)
+LASSO (LassoCV)
+- cv=5: balances bias/variance and runtime; enough folds to stabilize alpha selection.
+- random_state=7: reproducibility for CV path selection.
+- max_iter=10000: ensures convergence when features are correlated or scaled.
+- StandardScaler used before LASSO because L1 penalties are scale-sensitive.
+
+Random Forest
+- n_estimators=400: reduces variance and stabilizes feature importance; more trees smooth noise.
+- max_depth=8: limits tree complexity to avoid overfitting noisy returns.
+- min_samples_leaf=3: enforces minimum leaf size for smoother splits.
+- min_samples_split=6: prevents very small splits that overfit.
+- max_features="sqrt": standard choice for regression forests; reduces correlation among trees.
+- random_state=7: reproducibility of bootstrap and splits.
+- n_jobs=-1: parallel training to reduce runtime on multi-core CPUs.
+
+XGBoost
+- n_estimators=500: enough boosting rounds to learn signal with small learning rate.
+- learning_rate=0.05: conservative step size to reduce overfitting.
+- max_depth=5: moderate depth for non-linear patterns without extreme variance.
+- subsample=0.85: row subsampling adds regularization and robustness.
+- colsample_bytree=0.85: feature subsampling reduces feature dominance and overfit.
+- reg_alpha=0.1: L1 regularization to encourage sparsity in splits.
+- reg_lambda=1.0: L2 regularization to shrink weights and reduce overfit.
+- random_state=7: reproducibility.
+- n_jobs=-1: parallelism for faster training.
+
+Overfitting and underfitting handling
+- LASSO regularization reduces variance.
+- RF/XGBoost use depth and leaf constraints.
+- Time-ordered validation acts as a realistic generalization test.
+
+8) EVALUATION METRICS
+Metrics used
+- MSE: measures prediction error magnitude.
+- R2: shows variance explained by model.
+- Sharpe (annualized) for strategy risk-adjusted return.
+- Total cumulative return from long-short backtest.
+
+Why these metrics
+- MSE and R2 are standard for regression and capture statistical predictive power.
+- Sharpe and cumulative return capture economic significance.
+
+Confusion matrix
+- Not applicable because the target is continuous.
+- If reframed as classification (up/down), confusion matrix and ROC-AUC could be used.
+
+9) FINAL MODEL
+Best model selection
+- Determined by a combination of statistical metrics (MSE/R2) and economic performance (long-short return and Sharpe).
+- The dashboard compares all three models side-by-side.
+
+Performance achieved
+- Reported dynamically in the UI based on the dataset and model choice.
+
+Comparison with other models
+- Model comparison chart summarizes MSE and R2 for all models.
+
+10) END-TO-END PIPELINE
+Flow overview
+1. Load CSVs (raw or processed mode)
+2. Normalize schema
+3. Compute returns
+4. Merge fundamentals with prices (as-of)
+5. Build factor features and target
+6. Train ML model
+7. Predict returns
+8. Backtest predictions as long-short portfolio
+9. Compute factor returns for each signal
+10. Compute portfolio exposure
+11. Visualize results in Streamlit UI
+
+11) PERFORMANCE OPTIMIZATION
+Speed improvements
+- Vectorized pandas operations and groupby computations.
+- RF/XGBoost use parallel training via n_jobs=-1.
+- UI limits max tickers to constrain workload.
+
+Memory optimization
+- Data is in-memory only. No chunking or lazy evaluation.
+- Potential improvement: read CSVs in chunks and filter tickers early.
+
+Model optimization
+- LASSO regularization strength selected via CV.
+- RF/XGBoost hyperparameters set for balance between bias and variance.
+- Future improvement: early stopping for XGBoost.
+
+12) DEPLOYMENT
+How the model is deployed
+- Streamlit UI that runs the full pipeline and visualizes results.
+- No REST API; user directly interacts with the app.
+
+API endpoints
+- None in this version. Could add FastAPI endpoints for batch scoring.
+
+Model versioning
+- Not implemented. A future improvement is MLflow or similar artifact tracking.
+
+13) CHALLENGES AND SOLUTIONS
+Data issues
+- Schema mismatch: solved with column normalization + candidate mappings.
+- Missing ticker/date metadata: inferred from filename.
+- Noisy or sparse features: filtered by available_features.
+
+Model issues
+- Look-ahead bias: mitigated via as-of merge and time-ordered split.
+- Feature scale sensitivity: LASSO uses standardized inputs.
+
+Practical constraints
+- In-memory pipeline restricts large-scale universes.
+- No transaction costs or slippage in backtest.
+
+14) IMPROVEMENTS AND FUTURE SCOPE
+Modeling
+- Walk-forward validation with TimeSeriesSplit.
+- Add transaction costs, slippage, and turnover constraints.
+- Add factor neutralization (sector, size) to isolate pure signals.
+
+Pipeline
+- Add caching in Streamlit for repeated runs.
+- Add automated hyperparameter tuning.
+- Add unit tests for preprocessing and factor logic.
+
+Deployment
+- Build a FastAPI service for predictions.
+- Store model artifacts and metadata for versioning.
+
+15) INTERVIEW TALK TRACK 
+FactorLens is a Streamlit-based factor research pipeline that ingests raw equity prices and fundamentals, normalizes schemas, and merges fundamentals to prices using a backward as-of join to avoid look-ahead bias. It engineers 13 standard factor signals, builds long-short factor returns for each signal, and trains ML models (LASSO, Random Forest, XGBoost) to predict next-period returns on a time-ordered split. The app compares models by MSE and R2, and then validates economic relevance with a long-short backtest and Sharpe ratio. It also computes portfolio factor exposure for user-selected tickers. The system is modular, reproducible, and designed for rapid research iteration.
+
+16) LIMITATIONS AND ASSUMPTIONS
+- No transaction costs or slippage in backtest.
+- No walk-forward CV; single time-ordered split.
+- Fundamentals assumed available at report date (no reporting delay).
+- Data quality depends on upstream CSV accuracy.
+
+17) GLOSSARY
+- Factor: A systematic characteristic explaining cross-sectional returns.
+- Long-short: Long high-signal assets and short low-signal assets.
+- Factor return: Performance of a factor-sorted long-short portfolio.
+- As-of merge: Join using latest available fundamentals prior to price date.
+
+18) OUTPUTS AND DASHBOARD EXPLANATION (WHAT YOU SEE AND WHY)
+Sidebar inputs (what you choose)
+- Data source: Kaggle CSVs vs Processed CSV only
+  - Kaggle CSVs runs the full pipeline (load raw, compute features, save outputs).
+  - Processed CSV only loads existing stock_features.csv and factor_returns.csv for fast demo runs.
+- Max tickers slider: caps how many tickers are loaded to control runtime and memory.
+- Model choice: lasso, random_forest, xgboost
+  - LASSO is sparse and interpretable.
+  - RF and XGBoost capture non-linear relationships.
+- Factors to chart: multi-select list of available features to plot.
+
+Run pipeline button
+- Triggers data load, feature engineering, factor returns, model training, and backtest.
+
+Main dashboard outputs
+1) Live Results metrics
+- Test MSE: average squared prediction error on test split.
+- Test R2: variance explained by the model.
+- Total Return: cumulative long-short return from model predictions.
+- Sharpe (annualized): risk-adjusted return metric.
+
+2) Overview tab
+- Factor returns snapshot: last 12 rows of factor_returns.
+- Feature sample: first 20 rows of engineered dataset.
+- Cumulative factor returns plot: cumulative sum of factor long-short returns.
+- Regime monitor:
+  - Rolling mean and rolling vol of market return.
+  - Regime label: risk-on, risk-off, or mixed.
+
+3) Factors tab
+- Factor returns by signal: recent factor returns table.
+- Factor returns chart: full cumulative factor return plot.
+- Factor correlation heatmap: correlation across factor return series.
+
+4) Model tab
+- Model report: JSON with MSE, R2, test_samples.
+- Model comparison: bar chart comparing MSE and R2 across models.
+- Backtest comparison: cumulative returns for each model.
+- Feature importance table: feature names and model importance values.
+- Feature importance plot: bar chart of importance.
+
+5) Backtest tab
+- Long-short cumulative return: time series of cumulative returns.
+- Return series table: daily long_short and cumulative values.
+
+6) Exposure tab
+- Select stocks: list of tickers for exposure computation.
+- Custom weights input: user can specify weights per ticker.
+- Exposure output: factor exposures for the chosen portfolio.
+
+Outputs produced (files)
+- stock_features.csv: engineered features and return_next target.
+- factor_returns.csv: long-short factor returns for each feature.
+
+19) TECH STACK AND LIBRARIES (WHAT, WHERE, WHY)
+Python
+- Core language for data processing, modeling, and UI integration.
+
+pandas
+- Used for dataframes, groupby operations, rolling windows, and merges.
+- Essential for feature engineering and factor return construction.
+
+numpy
+- Used for numerical operations, log transforms, and NaN/inf handling.
+
+scikit-learn
+- LassoCV for linear baseline with built-in CV.
+- RandomForestRegressor for non-linear baseline.
+- StandardScaler for feature normalization.
+- Metrics: MSE and R2.
+
+xgboost
+- XGBRegressor for strong gradient boosting performance on tabular data.
+
+plotly
+- Interactive visualizations for factor returns, correlations, and model comparison.
+
+streamlit
+- UI layer that orchestrates pipeline runs and renders outputs.
+
+20) KEY FUNCTIONS USED (WHAT THEY DO AND WHY)
+Data loading and normalization
+- normalize_columns: standardizes CSV column names.
+- build_column_map: maps messy names to canonical schema.
+- load_prices_data, load_fundamentals_data: load raw CSVs and apply schema.
+
+Preprocessing
+- compute_returns: per-ticker percent change for close prices.
+- merge_price_fundamentals: backward as-of merge to avoid look-ahead.
+
+Feature engineering
+- build_features: creates all factor signals and return_next.
+- available_features: filters features with actual data.
+
+Factor portfolio logic
+- long_short_factor: long-minus-short return by quantiles.
+- compute_factor_returns: build factor return table across features.
+- long_short_by_prediction: backtest from model predictions.
+
+Model training
+- train_models: trains LASSO, RF, or XGBoost, returns report, predictions, importance.
+
+Exposure analysis
+- portfolio_exposure: weighted exposure based on latest factor values.
+
+Visualization
+- plot_factor_returns: cumulative factor return plot.
+- plot_factor_correlation: factor correlation heatmap.
+- plot_model_comparison: bar chart for model metrics.
+- plot_importance: feature importance chart.
+
+21) FINANCIAL TERMS AND FEATURES
+Below are the key finance terms used in this project. Each term is defined with intuition and how it appears in the pipeline.
+
+Return
+- Percentage change in price from one period to the next. Used as the base signal for prediction.
+
+Return_next
+- Forward return used as the supervised target. It is return shifted by one period.
+
+Factor
+- A systematic characteristic (e.g., value, momentum) that explains cross-sectional differences in returns.
+
+Momentum
+- Measures the tendency for assets that performed well in the recent past to continue performing well.
+- Implemented as trailing return over 3, 6, and 12 months.
+
+Volatility
+- Measures variability of returns. Higher volatility means more risk/uncertainty.
+- Implemented as rolling standard deviation of returns (1m and 3m).
+
+Size
+- Proxy for company scale. Typically smaller firms outperform in some regimes.
+- Implemented as log of market cap.
+
+Market cap
+- Price times shares outstanding. Represents company size in equity markets.
+
+Value
+- Cheapness of a stock. Often measured by book-to-market.
+- Implemented as book_value / market_cap.
+
+Book value
+- Accounting value of equity (assets minus liabilities). Used for value signals.
+
+Profitability
+- Efficiency of converting assets into earnings.
+- Implemented as net_income / total_assets.
+
+Quality
+- Profitability relative to revenue, indicating margin strength.
+- Implemented as net_income / revenue.
+
+Growth
+- Expansion of company fundamentals over time.
+- Implemented as year-over-year revenue growth.
+
+Earnings yield
+- Inverse of PE ratio. Higher yield implies cheaper earnings.
+- Implemented as 1 / pe_ratio.
+
+PE ratio
+- Price to earnings ratio. Higher PE implies more expensive valuation.
+
+Leverage
+- Balance sheet risk. High leverage can increase risk and return sensitivity.
+- Implemented as total_assets / market_cap.
+
+Liquidity
+- Ease of trading without moving the price. Higher liquidity is generally preferred.
+- Implemented as log of rolling average volume.
+
+Long-short portfolio
+- Long top-ranked assets and short bottom-ranked assets to isolate factor effects.
+
+Factor return
+- The daily return of a long-short portfolio formed by a single factor.
+
+Sharpe ratio
+- Risk-adjusted return. Higher Sharpe means more return per unit of volatility.
+
+Regime
+- Market condition classification (risk-on, risk-off, mixed) based on rolling mean and volatility of market returns.
+
+As-of merge
+- Time-aligned join using the most recent fundamentals available at or before each price date.
+
+22) SHORT DEFINITIONS
+Factor: Systematic return driver (value, momentum, etc.).
+Return: Percent price change over a period.
+Return_next: Next period return used as target.
+Long-short: Long winners, short losers.
+Factor return: Long-short return for one factor.
+Momentum: Past winners keep winning.
+Volatility: Return variability.
+Size: Log market cap.
+Value: Book-to-market ratio.
+Profitability: Net income over assets.
+Quality: Net income margin.
+Growth: Revenue growth rate.
+Earnings yield: Inverse PE ratio.
+Leverage: Assets relative to market cap.
+Liquidity: Rolling average volume (log).
+Sharpe: Risk-adjusted return.
+Regime: Risk-on/off classification.
+
+

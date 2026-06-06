@@ -1,8 +1,31 @@
-.venv/
+# Python
 __pycache__/
-.idea/
-.DS_Store
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
 
-# Large raw datasets (keep processed demo files tracked)
-data/raw/
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Credentials — NEVER commit
+kaggle.json
+.env
+.streamlit/secrets.toml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Large raw datasets (processed demo files are tracked)
+# data/raw/
+
+# Logs
+*.log

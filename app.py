@@ -6,7 +6,7 @@ import streamlit as st
 
 from src.config   import PROCESSED_FEATURES, PROCESSED_FACTORS
 from src.features import ALL_FEATURES, available
-from src.portfolio  import factor_returns, ic_series, backtest
+from src.portfolio  import ic_series, backtest
 from src.exposure   import portfolio_exposure
 from src.train      import run as train
 from src.charts     import (
